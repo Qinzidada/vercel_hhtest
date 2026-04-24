@@ -40,7 +40,7 @@ export default function HomePage() {
 
             {/* 标题 */}
             <div className="text-center space-y-3">
-              <h1 className="text-4xl font-bold text-sky-400">
+              <h1 className="text-4xl font-bold text-black">
                 哄哄模拟器 2.0
               </h1>
               <p className="text-lg text-muted-foreground">
