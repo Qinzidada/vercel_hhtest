@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { eq } from 'drizzle-orm';
+import { db } from '@/storage/database/neon-client';
+import { blogPosts } from '@/storage/database/shared/schema';
 
 export async function GET(
   request: NextRequest,
@@ -7,21 +9,28 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const client = getSupabaseClient();
+    const articleId = Number.parseInt(id, 10);
+    if (Number.isNaN(articleId)) {
+      return NextResponse.json({ error: '文章 ID 格式错误' }, { status: 400 });
+    }
 
-    const { data, error } = await client
-      .from('blog_posts')
-      .select('id, title, summary, content, created_at')
-      .eq('id', parseInt(id))
-      .maybeSingle();
+    const rows = await db
+      .select({
+        id: blogPosts.id,
+        title: blogPosts.title,
+        summary: blogPosts.summary,
+        content: blogPosts.content,
+        created_at: blogPosts.created_at,
+      })
+      .from(blogPosts)
+      .where(eq(blogPosts.id, articleId))
+      .limit(1);
 
-    if (error) throw new Error(`查询文章失败: ${error.message}`);
-
-    if (!data) {
+    if (!rows[0]) {
       return NextResponse.json({ error: '文章不存在' }, { status: 404 });
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(rows[0]);
   } catch (error) {
     console.error('GET /api/blog/[id] error:', error);
     return NextResponse.json(

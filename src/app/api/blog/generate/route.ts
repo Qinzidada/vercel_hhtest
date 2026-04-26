@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { db } from '@/storage/database/neon-client';
+import { blogPosts } from '@/storage/database/shared/schema';
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,22 +64,22 @@ export async function POST(request: NextRequest) {
     if (summary.length === 100) summary += '...';
 
     // 保存到数据库
-    const supabaseClient = getSupabaseClient();
-    const { data, error } = await supabaseClient
-      .from('blog_posts')
-      .insert({
+    const insertedRows = await db
+      .insert(blogPosts)
+      .values({
         title,
         summary,
         content,
       })
-      .select()
-      .maybeSingle();
-
-    if (error) throw new Error(`保存文章失败: ${error.message}`);
+      .returning();
+    const article = insertedRows[0];
+    if (!article) {
+      throw new Error('保存文章失败: 未返回文章记录');
+    }
 
     return NextResponse.json({
       success: true,
-      article: data,
+      article,
     });
   } catch (error) {
     console.error('POST /api/blog/generate error:', error);

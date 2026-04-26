@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { desc, eq } from 'drizzle-orm';
+import { db } from '@/storage/database/neon-client';
+import { gameRecords } from '@/storage/database/shared/schema';
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,32 +24,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = getSupabaseClient();
-
-    // 插入游戏记录
-    const { data, error } = await client
-      .from('game_records')
-      .insert({
+    const insertedRows = await db
+      .insert(gameRecords)
+      .values({
         user_id,
         scenario,
         final_score,
         result,
-        played_at: new Date().toISOString(),
       })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('插入游戏记录失败:', error);
-      return NextResponse.json(
-        { error: '保存游戏记录失败' },
-        { status: 500 }
-      );
-    }
+      .returning();
+    const record = insertedRows[0];
+    if (!record) throw new Error('插入游戏记录失败: 未返回记录');
 
     return NextResponse.json({
       success: true,
-      record: data,
+      record,
     });
   } catch (error) {
     console.error('保存游戏记录失败:', error);
@@ -70,29 +61,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const client = getSupabaseClient();
-
-    // 获取用户的游戏记录，按时间倒序排列
-    const { data: records, error } = await client
-      .from('game_records')
-      .select('*')
-      .eq('user_id', user_id)
-      .order('played_at', { ascending: false })
-      .limit(50);
-
-    if (error) {
-      console.error('获取游戏记录失败:', error);
+    const userId = Number.parseInt(user_id, 10);
+    if (Number.isNaN(userId)) {
       return NextResponse.json(
-        { error: '获取游戏记录失败' },
-        { status: 500 }
+        { error: 'user_id 格式错误' },
+        { status: 400 }
       );
     }
 
+    // 获取用户的游戏记录，按时间倒序排列
+    const records = await db
+      .select()
+      .from(gameRecords)
+      .where(eq(gameRecords.user_id, userId))
+      .orderBy(desc(gameRecords.played_at))
+      .limit(50);
+
     // 统计数据
     const totalGames = records?.length || 0;
-    const winGames = records?.filter(r => r.result === 'win').length || 0;
+    const winGames = records?.filter((r) => r.result === 'win').length || 0;
     const avgScore = totalGames > 0 
-      ? Math.round((records?.reduce((sum, r) => sum + (r.final_score || 0), 0) || 0) / totalGames)
+      ? Math.round((records?.reduce((sum: number, r) => sum + (r.final_score || 0), 0) || 0) / totalGames)
       : 0;
 
     return NextResponse.json({

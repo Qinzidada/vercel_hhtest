@@ -1,19 +1,21 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { desc } from 'drizzle-orm';
+import { db } from '@/storage/database/neon-client';
+import { blogPosts } from '@/storage/database/shared/schema';
 
 export async function GET() {
   try {
-    const client = getSupabaseClient();
+    const articles = await db
+      .select({
+        id: blogPosts.id,
+        title: blogPosts.title,
+        summary: blogPosts.summary,
+        created_at: blogPosts.created_at,
+      })
+      .from(blogPosts)
+      .orderBy(desc(blogPosts.created_at));
 
-    // 按创建时间倒序获取所有文章
-    const { data, error } = await client
-      .from('blog_posts')
-      .select('id, title, summary, created_at')
-      .order('created_at', { ascending: false });
-
-    if (error) throw new Error(`查询文章列表失败: ${error.message}`);
-
-    return NextResponse.json(data || []);
+    return NextResponse.json(articles);
   } catch (error) {
     console.error('GET /api/blog error:', error);
     return NextResponse.json(

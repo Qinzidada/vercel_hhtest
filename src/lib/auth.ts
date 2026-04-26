@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { eq } from 'drizzle-orm';
+import { db } from '@/storage/database/neon-client';
+import { users } from '@/storage/database/shared/schema';
 
 // 密码哈希
 export async function hashPassword(password: string): Promise<string> {
@@ -21,20 +23,17 @@ export interface User {
 
 // 检查用户名是否存在
 export async function checkUsernameExists(username: string): Promise<boolean> {
-  const client = getSupabaseClient();
-  const { data } = await client
-    .from('users')
-    .select('id')
-    .eq('username', username)
-    .maybeSingle();
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
 
-  return !!data;
+  return rows.length > 0;
 }
 
 // 创建新用户
 export async function createUser(username: string, password: string): Promise<User | null> {
-  const client = getSupabaseClient();
-
   // 检查用户名是否已存在
   const exists = await checkUsernameExists(username);
   if (exists) {
@@ -44,52 +43,68 @@ export async function createUser(username: string, password: string): Promise<Us
   // 哈希密码
   const hashedPassword = await hashPassword(password);
 
-  // 插入用户
-  const { data, error } = await client
-    .from('users')
-    .insert({
-      username,
-      password: hashedPassword,
-    })
-    .select()
-    .maybeSingle();
+  try {
+    const insertedRows = await db
+      .insert(users)
+      .values({
+        username,
+        password: hashedPassword,
+      })
+      .returning({
+        id: users.id,
+        username: users.username,
+        created_at: users.created_at,
+      });
 
-  if (error || !data) {
+    const insertedUser = insertedRows[0];
+    if (!insertedUser) {
+      return null;
+    }
+
+    return {
+      id: insertedUser.id,
+      username: insertedUser.username,
+      created_at:
+        insertedUser.created_at instanceof Date
+          ? insertedUser.created_at.toISOString()
+          : String(insertedUser.created_at),
+    };
+  } catch (error) {
     console.error('Failed to create user:', error);
     return null;
   }
-
-  return {
-    id: data.id,
-    username: data.username,
-    created_at: data.created_at,
-  };
 }
 
 // 验证用户登录
 export async function validateUser(username: string, password: string): Promise<User | null> {
-  const client = getSupabaseClient();
+  const rows = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      password: users.password,
+      created_at: users.created_at,
+    })
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
 
-  // 查找用户
-  const { data, error } = await client
-    .from('users')
-    .select('id, username, password, created_at')
-    .eq('username', username)
-    .maybeSingle();
-
-  if (error || !data) {
+  const user = rows[0];
+  if (!user) {
     return null;
   }
 
   // 验证密码
-  const isValid = await verifyPassword(password, data.password);
+  const isValid = await verifyPassword(password, user.password);
   if (!isValid) {
     return null;
   }
 
   return {
-    id: data.id,
-    username: data.username,
-    created_at: data.created_at,
+    id: user.id,
+    username: user.username,
+    created_at:
+      user.created_at instanceof Date
+        ? user.created_at.toISOString()
+        : String(user.created_at),
   };
 }
